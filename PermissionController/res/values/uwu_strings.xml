@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    SPDX-FileCopyrightText: The uwuAOSP Project
+    SPDX-License-Identifier: Apache-2.0
+-->
+<resources>
+    <string name="uwu_control_clipboard">Clipboard</string>
+    <string name="uwu_control_jump">App launches</string>
+    <string name="uwu_control_sensor">Sensors</string>
+    <string name="uwu_control_unavailable">Could not load controls</string>
+    <string name="uwu_control_clipboard_description">Manage which apps can read from and write to the clipboard</string>
+    <string name="uwu_control_jump_description">Manage which apps can open other apps and be opened by them</string>
+    <string name="uwu_control_sensor_description">Manage which apps can access device sensors</string>
+    <string name="uwu_control_retry">Tap to retry</string>
+</resources>

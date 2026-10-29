@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    SPDX-FileCopyrightText: The uwuAOSP Project
+    SPDX-License-Identifier: Apache-2.0
+-->
+<resources>
+    <string name="uwu_control_clipboard">剪贴板</string>
+    <string name="uwu_control_jump">应用跳转</string>
+    <string name="uwu_control_sensor">传感器</string>
+    <string name="uwu_control_unavailable">无法加载管控设置</string>
+    <string name="uwu_control_clipboard_description">管理应用读取和写入剪贴板的权限</string>
+    <string name="uwu_control_jump_description">管理应用发起和接收其他应用跳转的权限</string>
+    <string name="uwu_control_sensor_description">管理应用访问设备传感器的权限</string>
+    <string name="uwu_control_retry">点按重试</string>
+</resources>
