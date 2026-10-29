@@ -120,6 +120,7 @@ public final class AppPermissionGroupsFragment extends SettingsWithLargeHeader i
 
     private AppPermissionGroupsViewModel mViewModel;
     private boolean mIsSystemPermsScreen;
+    private UwuAppPolicyPreferences mUwuAppPolicies;
     private boolean mIsFirstLoad;
     private String mPackageName;
     private UserHandle mUser;
@@ -317,6 +318,19 @@ public final class AppPermissionGroupsFragment extends SettingsWithLargeHeader i
             addPreferencesFromResource(R.xml.allowed_denied);
             addAutoRevokePreferences(getPreferenceScreen());
             bindUi(this, mPackageName, mUser);
+            Context userContext = Utils.getUserContext(requireContext(), mUser);
+            if (mIsSystemPermsScreen && UwuAppPolicyPreferences.available(userContext)) {
+                mUwuAppPolicies = new UwuAppPolicyPreferences(
+                        this, getPreferenceScreen(), mPackageName, mUser, () -> {
+                            for (String key : new String[] {"allowed", "ask", "denied"}) {
+                                PreferenceCategory category = findPreference(key);
+                                if (category != null) {
+                                    KotlinUtils.INSTANCE.sortPreferenceGroup(
+                                            category, this::comparePreferences, false);
+                                }
+                            }
+                        });
+            }
         }
     }
 
@@ -489,6 +503,8 @@ public final class AppPermissionGroupsFragment extends SettingsWithLargeHeader i
 
             KotlinUtils.INSTANCE.sortPreferenceGroup(category, this::comparePreferences, false);
         }
+
+        if (mUwuAppPolicies != null) mUwuAppPolicies.attachRows();
 
         setAutoRevokeToggleState(mViewModel.getAutoRevokeLiveData().getValue());
 
@@ -681,6 +697,9 @@ public final class AppPermissionGroupsFragment extends SettingsWithLargeHeader i
     private void logAppPermissionsFragmentViewEntry(
             long sessionId, long viewId, String permissionGroupName, int category) {
 
+        if (permissionGroupName != null && permissionGroupName.startsWith("uwu_control_")) {
+            return;
+        }
         Integer uid = KotlinUtils.INSTANCE.getPackageUid(getActivity().getApplication(),
                 mPackageName, mUser);
         if (uid == null) {
