@@ -120,6 +120,7 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader implem
     private String mPermGroupName;
     private Collator mCollator;
     private PermissionAppsViewModel mViewModel;
+    private UwUAppPolicyApps mAppPolicyApps;
     private PermissionUsages mPermissionUsages;
     private List<AppPermissionUsage> mAppPermissionUsages = new ArrayList<>();
     private Boolean mSensorStatus;
@@ -136,6 +137,19 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader implem
 
         mCollator = Collator.getInstance(
                 getContext().getResources().getConfiguration().getLocales().get(0));
+
+        final ActionBar ab = getActivity().getActionBar();
+        if (ab != null) {
+            ab.setDisplayHomeAsUpEnabled(true);
+        }
+        mUserManager = Utils.getSystemServiceSafe(getContext(), UserManager.class);
+        String policyFeature = UwUAppPolicyApps.featureForGroup(mPermGroupName);
+        if (policyFeature != null) {
+            mAppPolicyApps = new UwUAppPolicyApps(this, policyFeature, this::onPolicyAppsLoaded);
+            setLoading(true, false);
+            setHasOptionsMenu(true);
+            return;
+        }
 
         PermissionAppsViewModelFactory factory =
                 new PermissionAppsViewModelFactory(getActivity().getApplication(), mPermGroupName,
@@ -157,10 +171,6 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader implem
         }
 
         setHasOptionsMenu(true);
-        final ActionBar ab = getActivity().getActionBar();
-        if (ab != null) {
-            ab.setDisplayHomeAsUpEnabled(true);
-        }
 
         // If the build type is below S, the app ops for permission usage can't be found. Thus, we
         // shouldn't load permission usages, for them.
@@ -177,8 +187,6 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader implem
                 mViewModel.getSensorStatusLiveData().observe(this, this::setSensorStatus);
             }
         }
-
-        mUserManager = Utils.getSystemServiceSafe(getContext(), UserManager.class);
     }
 
     @Override
@@ -200,6 +208,8 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader implem
     public void onCreateOptionsMenu(Menu menu, MenuInflater inflater) {
         super.onCreateOptionsMenu(menu, inflater);
 
+        if (mAppPolicyApps != null) return;
+
         if (mViewModel.getHasSystemAppsLiveData().getValue()) {
             mShowSystemMenu = menu.add(Menu.NONE, MENU_SHOW_SYSTEM, Menu.NONE,
                     R.string.menu_show_system);
@@ -218,7 +228,7 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader implem
     public boolean onOptionsItemSelected(MenuItem item) {
         switch (item.getItemId()) {
             case android.R.id.home:
-                mViewModel.updateShowSystem(false);
+                if (mViewModel != null) mViewModel.updateShowSystem(false);
                 pressBack(this);
                 return true;
             case MENU_SHOW_SYSTEM:
@@ -383,7 +393,11 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader implem
     @Override
     public void onViewCreated(View view, Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
-        bindUi(this, mPermGroupName);
+        if (mAppPolicyApps != null) {
+            mAppPolicyApps.bindHeader();
+        } else {
+            bindUi(this, mPermGroupName);
+        }
     }
 
     private static void bindUi(SettingsWithLargeHeader fragment, @NonNull String groupName) {
@@ -402,6 +416,35 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader implem
         fragment.getActivity().setTitle(label);
     }
 
+    private void onPolicyAppsLoaded(Map<Category, List<Pair<String, UserHandle>>> categories) {
+        if (categories != null) {
+            onPackagesLoaded(categories);
+            return;
+        }
+        ensurePreferenceScreen();
+        for (Category category : Category.values()) {
+            PreferenceCategory group = findPreference(category.getCategoryName());
+            if (group != null) {
+                group.removeAll();
+                group.setVisible(false);
+            }
+        }
+        PreferenceCategory denied = findPreference(DENIED.getCategoryName());
+        denied.setVisible(true);
+        denied.setTitle(null);
+        Preference error = new PermissionPreference(requireContext());
+        error.setTitle(R.string.uwu_control_unavailable);
+        error.setSummary(R.string.uwu_control_retry);
+        error.setOnPreferenceClickListener(
+                preference -> {
+                    setLoading(true, false);
+                    mAppPolicyApps.refresh();
+                    return true;
+                });
+        denied.addPreference(error);
+        setLoading(false, true);
+    }
+
     private void onPackagesLoaded(Map<Category, List<Pair<String, UserHandle>>> categories) {
         boolean isStorageAndLessThanT = !SdkLevel.isAtLeastT()
                 && mPermGroupName.equals(Manifest.permission_group.STORAGE);
@@ -412,6 +455,12 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader implem
             return;
         }
 
+        if (mAppPolicyApps != null) {
+            PreferenceCategory denied = findPreference(DENIED.getCategoryName());
+            denied.setTitle(R.string.denied_header);
+            denied.setVisible(true);
+            findPreference(ALLOWED.getCategoryName()).setVisible(true);
+        }
         Map<String, Preference> existingPrefs = new ArrayMap<>();
 
         for (int i = 0; i < getPreferenceScreen().getPreferenceCount(); i++) {
@@ -432,7 +481,10 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader implem
         long viewIdForLogging = new Random().nextLong();
         long sessionId = getArguments().getLong(EXTRA_SESSION_ID, INVALID_SESSION_ID);
 
-        Boolean showAlways = mViewModel.getShowAllowAlwaysStringLiveData().getValue();
+        Boolean showAlways =
+                mViewModel == null
+                        ? false
+                        : mViewModel.getShowAllowAlwaysStringLiveData().getValue();
         if (!isStorageAndLessThanT) {
             if (showAlways != null && showAlways) {
                 findPreference(ALLOWED.getCategoryName()).setTitle(R.string.allowed_always_header);
@@ -443,7 +495,9 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader implem
 
         // A mapping of user + packageName to their last access timestamps for the permission group.
         Map<String, Long> groupUsageLastAccessTime =
-                mViewModel.extractGroupUsageLastAccessTime(mAppPermissionUsages);
+                mViewModel == null
+                        ? new ArrayMap<>()
+                        : mViewModel.extractGroupUsageLastAccessTime(mAppPermissionUsages);
 
         for (Category grantCategory : categories.keySet()) {
             List<Pair<String, UserHandle>> packages = categories.get(grantCategory);
@@ -493,9 +547,11 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader implem
                 String key = user + packageName;
 
                 Long lastAccessTime = groupUsageLastAccessTime.get(key);
-                Triple<String, Integer, String> summaryTimestamp = Utils
-                        .getPermissionLastAccessSummaryTimestamp(
-                                lastAccessTime, context, mPermGroupName);
+                Triple<String, Integer, String> summaryTimestamp =
+                        mAppPolicyApps != null
+                                ? null
+                                : Utils.getPermissionLastAccessSummaryTimestamp(
+                                        lastAccessTime, context, mPermGroupName);
 
                 if (isStorageAndLessThanT && grantCategory.equals(ALLOWED)) {
                     category = mViewModel.packageHasFullStorage(packageName, user)
@@ -516,20 +572,34 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader implem
                 pref.setKey(key);
                 pref.setTitle(KotlinUtils.INSTANCE.getPackageLabel(getActivity().getApplication(),
                         packageName, user));
-                pref.setOnPreferenceClickListener((Preference p) -> {
-                    mViewModel.navigateToAppPermission(this, packageName, user,
-                            AppPermissionFragmentCompat.createArgs(packageName, null,
-                                    mPermGroupName, user, getClass().getName(), sessionId,
-                                    grantCategory.getCategoryName(), null));
-                    return true;
-                });
+                pref.setOnPreferenceClickListener(
+                        (Preference p) -> {
+                            if (mAppPolicyApps != null) {
+                                mAppPolicyApps.openApp(packageName, user);
+                            } else {
+                                mViewModel.navigateToAppPermission(
+                                        this,
+                                        packageName,
+                                        user,
+                                        AppPermissionFragmentCompat.createArgs(
+                                                packageName,
+                                                null,
+                                                mPermGroupName,
+                                                user,
+                                                getClass().getName(),
+                                                sessionId,
+                                                grantCategory.getCategoryName(),
+                                                null));
+                            }
+                            return true;
+                        });
                 pref.setTitleContentDescription(AppUtils.getAppContentDescription(context,
                         packageName, user.getIdentifier()));
 
                 updatePreferenceSummary(pref, summaryTimestamp);
 
                 category.addPreference(pref);
-                if (!mViewModel.getCreationLogged()) {
+                if (mViewModel != null && !mViewModel.getCreationLogged()) {
                     logPermissionAppsFragmentCreated(packageName, user, viewIdForLogging,
                             grantCategory.equals(ALLOWED), grantCategory.equals(ALLOWED_FOREGROUND),
                             grantCategory.equals(DENIED));
@@ -581,13 +651,17 @@ public final class PermissionAppsFragment extends SettingsWithLargeHeader implem
         }
         updateFooter(footerTexts);
 
-        mViewModel.setCreationLogged(true);
+        if (mViewModel != null) mViewModel.setCreationLogged(true);
 
         setLoading(false /* loading */, true /* animate */);
     }
 
     private void updatePreferenceSummary(Preference preference,
             Triple<String, Integer, String> summaryTimestamp) {
+        if (mAppPolicyApps != null) {
+            preference.setSummary(null);
+            return;
+        }
         String summary = mViewModel.getPreferenceSummary(getResources(), summaryTimestamp);
         if (!summary.isEmpty()) {
             preference.setSummary(summary);
